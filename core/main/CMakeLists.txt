@@ -2,11 +2,14 @@ idf_component_register(
     SRCS
         "main.cpp"
         "video/video_out.cpp"
+        "audio/audio_i2s.cpp"
     INCLUDE_DIRS
         "include"
         "video"
+        "audio"
     REQUIRES
         driver
+        esp_driver_i2s
         esp_timer
         freertos
 )
