@@ -168,6 +168,12 @@ extern "C" void app_main(void)
         return;
     }
 
+    // Free the menu framebuffer (60 KB DRAM) before insert so Nofrendo's
+    // primary_buffer can land in internal RAM rather than spilling to
+    // PSRAM. PSRAM-backed primary_buffer thrashes the data cache against
+    // the PSRAM-resident ROM and visibly breaks MMC3 game timing.
+    rom_menu_release();
+
     if (g_emu->insert(rom_path, 1, 0) != 0) {
         ESP_LOGE(TAG, "halt: insert %s failed", rom_path);
         return;

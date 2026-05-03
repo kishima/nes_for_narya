@@ -238,9 +238,12 @@ esp_err_t rom_menu_run(const char *mount_dir,
         return ESP_ERR_INVALID_SIZE;
     }
     ESP_LOGI(TAG, "selected: %s", out_path);
-
-    // Hand-off: keep _lines pointing at the menu buffer; emu_task will replace
-    // it on the next frame. Buffers stay allocated to avoid a transient blank
-    // frame at the moment of switch.
     return ESP_OK;
+}
+
+void rom_menu_release(void)
+{
+    // Park the ISR before reclaiming the buffers it points at.
+    _lines = nullptr;
+    free_buffers();
 }

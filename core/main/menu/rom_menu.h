@@ -31,6 +31,13 @@ esp_err_t rom_menu_run(const char *mount_dir,
                        char *out_path, size_t out_cap,
                        uint32_t default_timeout_ms);
 
+// Release the menu framebuffer + row-pointer array so the ~60 KB they
+// occupy in internal DRAM can be reused by the emulator (Nofrendo's
+// primary_buffer wants DRAM for ISR-safe access). After this call the
+// global _lines is left at nullptr; the emulator task will repopulate
+// it on its first frame. Safe to call multiple times.
+void rom_menu_release(void);
+
 #ifdef __cplusplus
 }
 #endif
