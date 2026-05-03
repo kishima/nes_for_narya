@@ -116,56 +116,56 @@ static void map4_write(uint32 address, uint8 value)
 
    case 0xC000:
       irq.latch = value;
-//      if (irq.reset)
-//         irq.counter = irq.latch;
       break;
 
    case 0xC001:
+      /* Real MMC3 defers the counter reload until the next clock edge;
+       * setting irq.reset here makes map4_hblank pick it up on the next
+       * scanline rather than reloading immediately. */
       irq.reset = true;
-      irq.counter = irq.latch;
       break;
 
    case 0xE000:
       irq.enabled = false;
-//      if (irq.reset)
-//         irq.counter = irq.latch;
       break;
 
    case 0xE001:
       irq.enabled = true;
-//      if (irq.reset)
-//         irq.counter = irq.latch;
       break;
 
    default:
       break;
    }
-
-   if (true == irq.reset)
-      irq.counter = irq.latch;
 }
 
+/* MMC3 IRQ counter clock (one tick per visible scanline + pre-render).
+ * Standard pattern with auto-reload, modelled after FCEUX:
+ *   - if counter is 0 or a reload was scheduled, reload from latch
+ *   - otherwise decrement
+ *   - fire IRQ whenever the resulting counter is 0 and IRQs are enabled
+ * This is what Mario 3, Mega Man 3-6, Kirby's Adventure etc. expect for
+ * mid-frame status-bar splits to appear.
+ */
 static void map4_hblank(int vblank)
 {
    if (vblank)
       return;
+   if (!ppu_enabled())
+      return;
 
-   if (ppu_enabled())
+   if (irq.reset || irq.counter == 0)
    {
-      if (irq.counter >= 0)
-      {
-         irq.reset = false;
-         irq.counter--;
+      irq.counter = irq.latch;
+      irq.reset = false;
+   }
+   else
+   {
+      irq.counter--;
+   }
 
-         if (irq.counter < 0)
-         {
-            if (irq.enabled)
-            {
-               irq.reset = true;
-               nes_irq();
-            }
-         }
-      }
+   if (irq.counter == 0 && irq.enabled)
+   {
+      nes_irq();
    }
 }
 
