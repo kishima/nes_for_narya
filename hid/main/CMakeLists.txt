@@ -1,9 +1,11 @@
 idf_component_register(
     SRCS
         "main.c"
+        "core_reset.c"
         "usb/usb_gamepad.c"
         "transport/hid_uart.c"
     INCLUDE_DIRS
+        "."
         "include"
         "usb"
         "transport"

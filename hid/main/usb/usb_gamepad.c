@@ -21,6 +21,8 @@
 #include "usb/hid_host.h"
 #include "usb/hid_usage_keyboard.h"
 
+#include "core_reset.h"
+
 #define TAG "usb_gamepad"
 
 #define USB_HOST_TASK_PRIORITY     5
@@ -67,6 +69,7 @@ typedef struct {
     uint8_t                  prev_btns;
     uint8_t                  prev_hat;
     uint8_t                  dump_count;   // raw-hex dumps emitted so far
+    bool                     reset_combo_held;  // last-seen state of Select+R2
 } gamepad_t;
 
 // We accept up to two simultaneous gamepad interfaces; only the first is
@@ -107,6 +110,11 @@ static void emit(int btn_idx, int pressed)
 // actual layout in case our decoder picks the wrong offsets.
 #define REPORT_DUMP_COUNT 20
 
+// Reset combo: pressing Share (Select) + R2 triggers a hardware reset of
+// the core MCU via the open-drain EN line.
+#define RESET_COMBO_B0_MASK (1u << 7)   // R2 in byte 0
+#define RESET_COMBO_B1_MASK (1u << 0)   // Share/Select in byte 1
+
 static void dump_report(const gamepad_t *pad, const uint8_t *data, size_t len)
 {
     char buf[3 * MAX_REPORT_LEN + 1];
@@ -144,6 +152,14 @@ static void decode_hori(gamepad_t *pad, const uint8_t *data, size_t len)
     uint8_t b0 = data[0];
     uint8_t b1 = (len > 1) ? data[1] : 0;
     uint8_t hat = data[2] & 0x0F;
+
+    // Reset combo: rising edge of (R2 && Share) triggers a core reset.
+    bool combo_now = (b0 & RESET_COMBO_B0_MASK) && (b1 & RESET_COMBO_B1_MASK);
+    if (combo_now && !pad->reset_combo_held) {
+        ESP_LOGI(TAG, "reset combo (Select+R2) detected -> pulsing core reset");
+        core_reset_pulse();
+    }
+    pad->reset_combo_held = combo_now;
 
     uint8_t new_btns = 0;
     if (hat < 8) new_btns |= HAT_TO_DPAD[hat];

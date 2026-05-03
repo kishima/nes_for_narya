@@ -16,6 +16,7 @@
 
 #include "narya_pin_assign.h"
 #include "hid_uart_proto.h"
+#include "core_reset.h"
 #include "usb/usb_gamepad.h"
 #include "transport/hid_uart.h"
 
@@ -42,26 +43,14 @@ static void enable_vbus(void)
     vTaskDelay(pdMS_TO_TICKS(50));
 }
 
-// Reset the core MCU via the open-drain line into its EN pin. The Narya
-// reset button only resets the hid (this MCU); we mirror that to the core
-// so both come up together. Sequence mirrors fmruby-core/main/boot/boot.c.
-static void reset_core(void)
+// Reset the core MCU on hid boot, then wait for its UART RX to be ready.
+// The Narya reset button only resets this MCU; we mirror that to the core
+// so both come up together.
+static void reset_core_at_boot(void)
 {
-    gpio_config_t io = {
-        .pin_bit_mask = (1ULL << NARYA_HID_CORE_RESET),
-        .mode         = GPIO_MODE_OUTPUT_OD,    // open-drain: HIGH = high-Z
-        .pull_up_en   = GPIO_PULLUP_DISABLE,
-        .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type    = GPIO_INTR_DISABLE,
-    };
-    gpio_config(&io);
-
-    ESP_LOGI(TAG, "asserting core reset on GPIO%d", NARYA_HID_CORE_RESET);
-    gpio_set_level(NARYA_HID_CORE_RESET, 0);    // pull EN low
-    vTaskDelay(pdMS_TO_TICKS(100));
-    gpio_set_level(NARYA_HID_CORE_RESET, 1);    // release; external pull-up brings EN high
-    ESP_LOGI(TAG, "core reset released; waiting for boot");
-    vTaskDelay(pdMS_TO_TICKS(3000));            // matches fmruby-core wait so the core's UART RX is ready
+    core_reset_pulse();
+    ESP_LOGI(TAG, "waiting for core boot");
+    vTaskDelay(pdMS_TO_TICKS(3000));
 }
 
 void app_main(void)
@@ -72,7 +61,7 @@ void app_main(void)
              NARYA_HID_UART_TX, NARYA_HID_UART_RX, NARYA_HID_UART_BAUD);
     ESP_LOGI(TAG, "[proto] sof=0x%02X max_frame=%u", NARYA_HID_SOF, (unsigned)NARYA_HID_MAX_FRAME);
 
-    reset_core();
+    reset_core_at_boot();
     enable_vbus();
 
     if (hid_uart_tx_init() != ESP_OK) {
