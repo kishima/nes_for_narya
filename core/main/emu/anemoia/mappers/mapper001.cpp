@@ -38,6 +38,59 @@ struct Mapper001_state
 };
 constexpr Cartridge::MIRROR Mapper001_state::mirror[4];
 
+// Recompute the live PRG / CHR window pointers from the current mode
+// bits and bank registers, without mutating the registers themselves.
+// Called from the $8000 control-register write so that flipping
+// PRG_ROM_bank_mode / CHR_ROM_bank_mode alone re-maps the address space
+// immediately. Upstream Anemoia only refreshed pointers on the
+// per-bank register writes ($A000 / $C000 / $E000), leaving the window
+// stale when a game toggles the control mode and then jumps into the
+// freshly-mapped region before the next bank-data write. CHR-RAM
+// carts (number_CHR_banks == 0) keep their reset-time pointers into
+// the shared CHR_RAM buffer so we skip the CHR slot recompute for them.
+IRAM_ATTR static void mapper001_apply_banks(Mapper001_state* state)
+{
+    switch (state->PRG_ROM_bank_mode)
+    {
+    case 0:
+    case 1:
+        state->ptr_16K_PRG_banks[2] = getBank(
+            &state->PRG_16K_cache, state->PRG_bank & 0x0E, Mapper::ROM_TYPE::PRG_ROM);
+        state->ptr_16K_PRG_banks[3] = getBank(
+            &state->PRG_16K_cache, (state->PRG_bank & 0x0E) + 1, Mapper::ROM_TYPE::PRG_ROM);
+        break;
+    case 2:
+        state->ptr_16K_PRG_banks[0] =
+            getBank(&state->PRG_16K_cache, 0, Mapper::ROM_TYPE::PRG_ROM);
+        state->ptr_16K_PRG_banks[1] = getBank(
+            &state->PRG_16K_cache, state->PRG_bank & 0x0F, Mapper::ROM_TYPE::PRG_ROM);
+        break;
+    case 3:
+        state->ptr_16K_PRG_banks[0] = getBank(
+            &state->PRG_16K_cache, state->PRG_bank & 0x0F, Mapper::ROM_TYPE::PRG_ROM);
+        state->ptr_16K_PRG_banks[1] = getBank(
+            &state->PRG_16K_cache, state->number_PRG_banks - 1, Mapper::ROM_TYPE::PRG_ROM);
+        break;
+    default: break;
+    }
+
+    if (state->number_CHR_banks != 0)
+    {
+        if (state->CHR_ROM_bank_mode == 0)
+        {
+            state->ptr_8K_CHR_bank = getBank(
+                &state->CHR_8K_cache, state->CHR_bank_0 & 0x1E, Mapper::ROM_TYPE::CHR_ROM);
+        }
+        else
+        {
+            state->ptr_4K_CHR_banks[0] = getBank(
+                &state->CHR_4K_cache, state->CHR_bank_0, Mapper::ROM_TYPE::CHR_ROM);
+            state->ptr_4K_CHR_banks[1] = getBank(
+                &state->CHR_4K_cache, state->CHR_bank_1, Mapper::ROM_TYPE::CHR_ROM);
+        }
+    }
+}
+
 IRAM_ATTR bool mapper001_cpuRead(Mapper* mapper, uint16_t addr, uint8_t& data)
 {
     if (addr < 0x6000) return false;
@@ -90,6 +143,11 @@ IRAM_ATTR bool mapper001_cpuWrite(Mapper* mapper, uint16_t addr, uint8_t data)
 
                 // Set mirror mode
                 state->cart->setMirrorMode(state->mirror[state->control & 0x03]);
+
+                // Mode bits we just wrote change which slots are
+                // fixed vs swappable; re-apply the window mapping
+                // before the CPU can fetch from the new layout.
+                mapper001_apply_banks(state);
                 break;
 
             // CHR bank 0 Register
@@ -172,9 +230,21 @@ IRAM_ATTR bool mapper001_cpuWrite(Mapper* mapper, uint16_t addr, uint8_t data)
     }
     else
     {
+        // Bit-7 set anywhere in $8000-$FFFF resets the load shift register
+        // and forces the control register to lock PRG into mode 3 (the
+        // power-on default), pinning the last bank at $C000-$FFFF. The
+        // upstream code only OR'd the bits into `control` and left the
+        // derived PRG_ROM_bank_mode / window pointers stale, so a game
+        // that did this reset while running in mode 2 (e.g. after a
+        // save) would keep executing with mode-2 PRG mapping until the
+        // next 5-write control sequence completed - long enough for the
+        // CPU to JSR through the wrong bank and never come back.
         state->load = 0x00;
         state->load_writes = 0;
         state->control |= 0x0C;
+        state->PRG_ROM_bank_mode = (state->control >> 2) & 0x03;
+        state->CHR_ROM_bank_mode = (state->control >> 4) & 0x01;
+        mapper001_apply_banks(state);
     }
     return true;
 }
