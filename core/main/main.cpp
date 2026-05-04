@@ -66,6 +66,38 @@ extern "C" volatile uint16_t g_pc_last;
 extern "C" volatile uint16_t g_pc_min;
 extern "C" volatile uint16_t g_pc_max;
 
+// =============================================================
+// BEGIN: mapper001 diag (revertable)
+// Drained from emu_task's 1 Hz log so we can see whether DQ3-style
+// hangs are still touching MMC1 at all (counters keep moving) or
+// have stopped writing entirely (counters frozen). last_* fields
+// hold the most recently completed register write so we can read
+// the live PRG/CHR mode and bank registers post-mortem from serial.
+extern "C" volatile uint32_t g_mapper001_w8000_done;
+extern "C" volatile uint32_t g_mapper001_wA000_done;
+extern "C" volatile uint32_t g_mapper001_wC000_done;
+extern "C" volatile uint32_t g_mapper001_wE000_done;
+extern "C" volatile uint32_t g_mapper001_bit7_resets;
+extern "C" volatile uint32_t g_mapper001_load_writes;
+extern "C" volatile uint8_t  g_mapper001_last_control;
+extern "C" volatile uint8_t  g_mapper001_last_prg_mode;
+extern "C" volatile uint8_t  g_mapper001_last_chr_mode;
+extern "C" volatile uint8_t  g_mapper001_last_prg_bank;
+extern "C" volatile uint8_t  g_mapper001_last_chr_bank0;
+extern "C" volatile uint8_t  g_mapper001_last_chr_bank1;
+// END: mapper001 diag (revertable)
+// =============================================================
+
+// =============================================================
+// BEGIN: ppu vblank diag (revertable)
+extern "C" volatile uint32_t g_ppu_setvblank_calls;
+extern "C" volatile uint32_t g_ppu_clearvblank_calls;
+extern "C" volatile uint32_t g_ppu_nmi_fires;
+extern "C" volatile uint32_t g_ppu_2002_reads_vbl0;
+extern "C" volatile uint32_t g_ppu_2002_reads_vbl1;
+// END: ppu vblank diag (revertable)
+// =============================================================
+
 // hid_rx_task increments this on every loop iteration so the diagnostic
 // log can confirm the task is actually scheduled.
 static volatile uint32_t s_hid_rx_iterations;
@@ -128,6 +160,41 @@ static void emu_task(void *arg)
                      (unsigned)pad_or, (unsigned)strobe_or);
             ESP_LOGI(TAG, "[cpu-diag] pc=0x%04X range=0x%04X..0x%04X",
                      (unsigned)pc_last, (unsigned)pc_min, (unsigned)pc_max);
+            // BEGIN: mapper001 diag (revertable)
+            {
+                uint32_t m1_w8000 = g_mapper001_w8000_done;   g_mapper001_w8000_done  = 0;
+                uint32_t m1_wA000 = g_mapper001_wA000_done;   g_mapper001_wA000_done  = 0;
+                uint32_t m1_wC000 = g_mapper001_wC000_done;   g_mapper001_wC000_done  = 0;
+                uint32_t m1_wE000 = g_mapper001_wE000_done;   g_mapper001_wE000_done  = 0;
+                uint32_t m1_b7    = g_mapper001_bit7_resets;  g_mapper001_bit7_resets = 0;
+                uint32_t m1_load  = g_mapper001_load_writes;  g_mapper001_load_writes = 0;
+                ESP_LOGI(TAG,
+                         "[mapper001-diag] w8000=%u wA000=%u wC000=%u wE000=%u bit7=%u loads=%u "
+                         "ctrl=0x%02X prg_mode=%u chr_mode=%u prg_bank=0x%02X chr0=0x%02X chr1=0x%02X",
+                         (unsigned)m1_w8000, (unsigned)m1_wA000,
+                         (unsigned)m1_wC000, (unsigned)m1_wE000,
+                         (unsigned)m1_b7,    (unsigned)m1_load,
+                         (unsigned)g_mapper001_last_control,
+                         (unsigned)g_mapper001_last_prg_mode,
+                         (unsigned)g_mapper001_last_chr_mode,
+                         (unsigned)g_mapper001_last_prg_bank,
+                         (unsigned)g_mapper001_last_chr_bank0,
+                         (unsigned)g_mapper001_last_chr_bank1);
+            }
+            // END: mapper001 diag (revertable)
+            // BEGIN: ppu vblank diag (revertable)
+            {
+                uint32_t set_n   = g_ppu_setvblank_calls;   g_ppu_setvblank_calls   = 0;
+                uint32_t clr_n   = g_ppu_clearvblank_calls; g_ppu_clearvblank_calls = 0;
+                uint32_t nmi_n   = g_ppu_nmi_fires;         g_ppu_nmi_fires         = 0;
+                uint32_t r_v0    = g_ppu_2002_reads_vbl0;   g_ppu_2002_reads_vbl0   = 0;
+                uint32_t r_v1    = g_ppu_2002_reads_vbl1;   g_ppu_2002_reads_vbl1   = 0;
+                ESP_LOGI(TAG,
+                         "[ppu-diag] setvbl=%u clrvbl=%u nmi=%u r2002_v0=%u r2002_v1=%u",
+                         (unsigned)set_n, (unsigned)clr_n, (unsigned)nmi_n,
+                         (unsigned)r_v0, (unsigned)r_v1);
+            }
+            // END: ppu vblank diag (revertable)
             uint32_t hid_bytes = 0, hid_msgs = 0, hid_drops = 0;
             hid_uart_rx_stats(&hid_bytes, &hid_msgs, &hid_drops);
             ESP_LOGI(TAG, "[hid-diag] uart_bytes=%u msgs=%u drops=%u rx_iter=%u",

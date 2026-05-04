@@ -1,6 +1,20 @@
 #include "ppu2C02.h"
 #include "bus.h"
 
+// =============================================================
+// BEGIN: ppu vblank diag (revertable)
+// Counters drained from main.cpp's 1 Hz log so we can tell, during
+// hangs, whether the CPU is reading PPUSTATUS at all and which value
+// (vblank=0 vs vblank=1) it gets back. Search "ppu vblank diag" to
+// remove this block when the diagnosis is done.
+extern "C" volatile uint32_t g_ppu_setvblank_calls;
+extern "C" volatile uint32_t g_ppu_clearvblank_calls;
+extern "C" volatile uint32_t g_ppu_nmi_fires;
+extern "C" volatile uint32_t g_ppu_2002_reads_vbl0;
+extern "C" volatile uint32_t g_ppu_2002_reads_vbl1;
+// END: ppu vblank diag (revertable)
+// =============================================================
+
 #define READ_PALETTE(x) palette_table[((x) & 0x1F) ^ (((x) & 0x13) == 0x10 ? 0x10 : 0x00)]
 #ifdef ILI9341_DRIVER
 DMA_ATTR uint16_t Ppu2C02::display_buffer_front[SCANLINE_SIZE * SCANLINES_PER_BUFFER];
@@ -137,6 +151,9 @@ IRAM_ATTR uint8_t Ppu2C02::cpuRead(uint16_t addr)
     {
     case 0x0002: // PPUSTATUS
         data = status.reg & 0xE0;
+        // BEGIN: ppu vblank diag (revertable)
+        if (status.VBlank) g_ppu_2002_reads_vbl1++; else g_ppu_2002_reads_vbl0++;
+        // END: ppu vblank diag (revertable)
         // Narya port: NES spec clears the VBlank flag on $2002 read as a
         // side effect, but our coarse CPU/PPU sync (bus.clock() runs the
         // CPU 2501 cycles at a time during VBlank, with no per-cycle
@@ -168,10 +185,26 @@ IRAM_ATTR uint8_t Ppu2C02::cpuRead(uint16_t addr)
     return data;
 }
 
+// BEGIN: ppu vblank diag (revertable)
+extern "C" volatile uint32_t g_ppu_setvblank_calls   = 0;
+extern "C" volatile uint32_t g_ppu_clearvblank_calls = 0;
+extern "C" volatile uint32_t g_ppu_nmi_fires         = 0;
+extern "C" volatile uint32_t g_ppu_2002_reads_vbl0   = 0;
+extern "C" volatile uint32_t g_ppu_2002_reads_vbl1   = 0;
+// END: ppu vblank diag (revertable)
+
 IRAM_ATTR void Ppu2C02::setVBlank()
 {
     status.VBlank = 1;
-    if (control.Vblank_NMI) bus->NMI();
+    // BEGIN: ppu vblank diag (revertable)
+    g_ppu_setvblank_calls++;
+    // END: ppu vblank diag (revertable)
+    if (control.Vblank_NMI) {
+        // BEGIN: ppu vblank diag (revertable)
+        g_ppu_nmi_fires++;
+        // END: ppu vblank diag (revertable)
+        bus->NMI();
+    }
 }
 
 IRAM_ATTR void Ppu2C02::clearVBlank()
@@ -179,6 +212,9 @@ IRAM_ATTR void Ppu2C02::clearVBlank()
     status.VBlank = 0;
     status.sprite_zero_hit = 0;
     status.sprite_overflow = 0;
+    // BEGIN: ppu vblank diag (revertable)
+    g_ppu_clearvblank_calls++;
+    // END: ppu vblank diag (revertable)
 }
 
 IRAM_ATTR void Ppu2C02::renderScanline(uint16_t current_scanline)

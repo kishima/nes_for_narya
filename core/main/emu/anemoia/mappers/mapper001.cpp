@@ -1,6 +1,26 @@
 #include "mapper001.h"
 #include "../cartridge.h"
 
+// =============================================================
+// BEGIN: mapper001 diag (revertable)
+// Lightweight counters and last-write snapshot, drained once per
+// second from main.cpp's emu-diag log line. Search for "mapper001
+// diag" to remove this block when no longer needed.
+extern "C" volatile uint32_t g_mapper001_w8000_done   = 0; // control reg 5-write completions
+extern "C" volatile uint32_t g_mapper001_wA000_done   = 0; // CHR bank 0 reg completions
+extern "C" volatile uint32_t g_mapper001_wC000_done   = 0; // CHR bank 1 reg completions
+extern "C" volatile uint32_t g_mapper001_wE000_done   = 0; // PRG bank reg completions
+extern "C" volatile uint32_t g_mapper001_bit7_resets  = 0; // load-shift resets via bit-7 writes
+extern "C" volatile uint32_t g_mapper001_load_writes  = 0; // total raw load-shift writes
+extern "C" volatile uint8_t  g_mapper001_last_control   = 0;
+extern "C" volatile uint8_t  g_mapper001_last_prg_mode  = 0;
+extern "C" volatile uint8_t  g_mapper001_last_chr_mode  = 0;
+extern "C" volatile uint8_t  g_mapper001_last_prg_bank  = 0;
+extern "C" volatile uint8_t  g_mapper001_last_chr_bank0 = 0;
+extern "C" volatile uint8_t  g_mapper001_last_chr_bank1 = 0;
+// END: mapper001 diag (revertable)
+// =============================================================
+
 struct Mapper001_state
 {
     Cartridge* cart;
@@ -129,6 +149,9 @@ IRAM_ATTR bool mapper001_cpuWrite(Mapper* mapper, uint16_t addr, uint8_t data)
     {
         state->load = (state->load >> 1) | ((data & 0x01) << 4);
         state->load_writes++;
+        // BEGIN: mapper001 diag (revertable)
+        g_mapper001_load_writes++;
+        // END: mapper001 diag (revertable)
 
         if (state->load_writes == 5)
         {
@@ -148,11 +171,21 @@ IRAM_ATTR bool mapper001_cpuWrite(Mapper* mapper, uint16_t addr, uint8_t data)
                 // fixed vs swappable; re-apply the window mapping
                 // before the CPU can fetch from the new layout.
                 mapper001_apply_banks(state);
+                // BEGIN: mapper001 diag (revertable)
+                g_mapper001_w8000_done++;
+                g_mapper001_last_control  = state->control;
+                g_mapper001_last_prg_mode = state->PRG_ROM_bank_mode;
+                g_mapper001_last_chr_mode = state->CHR_ROM_bank_mode;
+                // END: mapper001 diag (revertable)
                 break;
 
             // CHR bank 0 Register
             case 1:
                 state->CHR_bank_0 = state->load & 0x1F;
+                // BEGIN: mapper001 diag (revertable)
+                g_mapper001_wA000_done++;
+                g_mapper001_last_chr_bank0 = state->CHR_bank_0;
+                // END: mapper001 diag (revertable)
 
                 if (state->CHR_ROM_bank_mode == 0)
                 {
@@ -178,6 +211,10 @@ IRAM_ATTR bool mapper001_cpuWrite(Mapper* mapper, uint16_t addr, uint8_t data)
             // CHR bank 1 Register
             case 2:
                 state->CHR_bank_1 = state->load & 0x1F;
+                // BEGIN: mapper001 diag (revertable)
+                g_mapper001_wC000_done++;
+                g_mapper001_last_chr_bank1 = state->CHR_bank_1;
+                // END: mapper001 diag (revertable)
 
                 if (state->CHR_ROM_bank_mode == 1)
                 {
@@ -193,6 +230,10 @@ IRAM_ATTR bool mapper001_cpuWrite(Mapper* mapper, uint16_t addr, uint8_t data)
             // PRG bank Register
             case 3:
                 state->PRG_bank = state->load & 0x1F;
+                // BEGIN: mapper001 diag (revertable)
+                g_mapper001_wE000_done++;
+                g_mapper001_last_prg_bank = state->PRG_bank;
+                // END: mapper001 diag (revertable)
 
                 switch (state->PRG_ROM_bank_mode)
                 {
@@ -245,6 +286,12 @@ IRAM_ATTR bool mapper001_cpuWrite(Mapper* mapper, uint16_t addr, uint8_t data)
         state->PRG_ROM_bank_mode = (state->control >> 2) & 0x03;
         state->CHR_ROM_bank_mode = (state->control >> 4) & 0x01;
         mapper001_apply_banks(state);
+        // BEGIN: mapper001 diag (revertable)
+        g_mapper001_bit7_resets++;
+        g_mapper001_last_control  = state->control;
+        g_mapper001_last_prg_mode = state->PRG_ROM_bank_mode;
+        g_mapper001_last_chr_mode = state->CHR_ROM_bank_mode;
+        // END: mapper001 diag (revertable)
     }
     return true;
 }
