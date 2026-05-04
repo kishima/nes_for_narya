@@ -4,10 +4,28 @@
 //   - Initialize the rom_store (parses the 'roms' partition directory).
 //   - Bring up NTSC video and I2S audio.
 //   - Show the ROM picker on the TV.
-//   - Construct the Nofrendo emulator and insert the chosen ROM.
-//   - emu_task (core 0):  one frame per iteration, hands _lines + audio.
-//   - perf_task (core 1): 1 Hz status logger.
-//   - hid_rx_task (core 1): forwards UART HID events into the emulator.
+//   - Construct the emulator and insert the chosen ROM.
+//
+// Task & ISR placement (Anemoia core):
+//
+//   Core 0  (cache locality with the I2S0 video DMA + flash-XIP front-end)
+//     * video_isr                  : I2S0 EOF interrupt, ~15.7 kHz, IRAM
+//     * apu_task          (prio 1) : Anemoia Apu2A03::clock() infinite loop;
+//                                    blocks on I2S DMA queue when a 128-frame
+//                                    block is full -> paces APU to 44.1 kHz.
+//     * main_task                  : finishes app_main(), then idles.
+//     * IDLE0                      : starves while apu_task is busy.
+//
+//   Core 1  (no DMA-bound peripherals here)
+//     * emu_task          (prio 4) : Bus::clock() per NES frame, drains the
+//                                    HID UART event queue, paces to 60 fps.
+//     * hid_rx_task       (prio 5) : UART RX framer -> event queue.
+//     * perf_task         (prio 2) : 1 Hz [perf]/[emu] log emitter.
+//     * IDLE1
+//
+// Cross-core APU register access: emu_task on core 1 writes CPU/APU
+// registers; apu_task on core 0 reads them. ESP32 dual-core keeps DRAM
+// coherent so this works without explicit barriers.
 
 #include <math.h>
 #include <stdio.h>
@@ -46,23 +64,47 @@ static void emu_task(void *arg)
     const int64_t FRAME_US = 16639;
     int64_t next_frame_us = esp_timer_get_time();
 
+    int diag_frames = 0;
+    int64_t diag_clock_us_sum = 0;
+    int64_t diag_window_start = esp_timer_get_time();
+
     while (true) {
+        int64_t t0 = esp_timer_get_time();
         emu->update();                              // run one NES frame
+        int64_t t1 = esp_timer_get_time();
+        diag_clock_us_sum += (t1 - t0);
+        diag_frames++;
+
         _lines = emu->video_buffer();               // hand frame to video_isr
         int n = emu->audio_buffer(audio_block, NARYA_AUDIO_BUF_SAMPLES);
         if (n > 0) audio_i2s_write_mono(audio_block, n);
 
-        // Frame pace. With Anemoia, audio runs in apu_task on the side
-        // and audio_buffer() returns 0 here, so this loop has no I2S
-        // back-pressure of its own and would otherwise spin core 0.
+        // 1 Hz: average emu->update() time so we can see if the core is
+        // running at real-time (~16 ms) or far slower.
+        if (t1 - diag_window_start >= 1000000) {
+            ESP_LOGI(TAG, "[emu] frames=%d avg_update=%lldus",
+                     diag_frames,
+                     diag_frames ? diag_clock_us_sum / diag_frames : 0);
+            diag_frames = 0;
+            diag_clock_us_sum = 0;
+            diag_window_start = t1;
+        }
+
+        // Frame pace. Anemoia produces audio out-of-band on apu_task, so
+        // audio_buffer() returns 0 here and this loop has no I2S back-
+        // pressure of its own. We must yield on every iteration to keep
+        // IDLE0 alive even when bus.clock() blew its 16 ms budget.
         next_frame_us += FRAME_US;
         int64_t now = esp_timer_get_time();
         int64_t sleep_us = next_frame_us - now;
         if (sleep_us > 1000) {
             vTaskDelay(pdMS_TO_TICKS(sleep_us / 1000));
-        } else if (sleep_us < -2 * FRAME_US) {
-            // Fell behind by more than a frame; resync rather than chase.
-            next_frame_us = now;
+        } else {
+            vTaskDelay(1);                          // unconditional yield
+            if (sleep_us < -2 * FRAME_US) {
+                // Fell behind by more than a frame; resync rather than chase.
+                next_frame_us = now;
+            }
         }
     }
 }
@@ -171,7 +213,11 @@ extern "C" void app_main(void)
     }
     ESP_LOGI(TAG, "[emu] rom=%s loaded", rom_name);
 
-    xTaskCreatePinnedToCore(emu_task,    "emu_task",    6 * 1024, g_emu, 4, nullptr, 0);
+    // emu_task moves to core 1 so it does not contend with the Anemoia
+    // apu_task (pinned to core 0 with the I2S DMA peripheral and the
+    // video ISR). With both on core 0 the higher-priority emu_task
+    // starved apu_task and the audio I2S queue underran ('ぶつぶつ').
+    xTaskCreatePinnedToCore(emu_task,    "emu_task",    6 * 1024, g_emu, 4, nullptr, 1);
     xTaskCreatePinnedToCore(perf_task,   "perf_task",   3 * 1024, nullptr, 2, nullptr, 1);
     xTaskCreatePinnedToCore(hid_rx_task, "hid_rx_task", 3 * 1024, g_emu, 5, nullptr, 1);
 }

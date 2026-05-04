@@ -80,15 +80,33 @@ extern "C" IRAM_ATTR void narya_anemoia_publish_scanlines(const uint16_t *src,
 extern "C" void narya_anemoia_publish_audio(const int16_t *samples, int count)
 {
     if (!samples || count <= 0) return;
-    // Anemoia hands us interleaved stereo (count = frames * 2), 16-bit but
-    // unsigned (raw NES output bits, midpoint = 0x8000). Convert to mono
-    // signed centered around 0 for our blocking I2S writer.
+    // Anemoia ships interleaved stereo (count = frames * 2). Each lane is
+    // an unsigned 8-bit NES APU sample placed in the upper byte of a
+    // uint16, so silence is at 0 (NOT 0x8000) and the loudest output is
+    // 0xFF00. Naively reinterpreting as signed16 puts silence at -32768,
+    // which sounds either "silent" (when the amp is AC-coupled enough to
+    // hide the DC level) or as constant buzz (when active samples cross
+    // the wraparound).
+    //
+    // We feed the stream through a one-pole high-pass DC blocker:
+    //   y[n] = x[n] - x[n-1] + a * y[n-1]
+    // with a = 0.999 (~7 Hz cutoff at 44.1 kHz) so any constant offset
+    // decays out within a few hundred ms and the amp sees a true zero
+    // mean signal.
     static int16_t mono[NARYA_AUDIO_MAX_MONO_SAMPLES];
+    static int32_t hp_x_prev = 0;
+    static int32_t hp_y_prev = 0;
     int frames = count / 2;
     if (frames > NARYA_AUDIO_MAX_MONO_SAMPLES) frames = NARYA_AUDIO_MAX_MONO_SAMPLES;
     for (int i = 0; i < frames; ++i) {
-        uint16_t u = (uint16_t)samples[i * 2];     // left channel
-        mono[i]    = (int16_t)((int32_t)u - 0x8000);
+        int32_t x = (int32_t)(uint16_t)samples[i * 2]; // left channel as 0..0xFF00
+        // y = x - x_prev + (1023/1024) * y_prev   == ~0.999 alpha
+        int32_t y = x - hp_x_prev + ((hp_y_prev * 1023) >> 10);
+        hp_x_prev = x;
+        hp_y_prev = y;
+        if (y >  32767) y =  32767;
+        if (y < -32768) y = -32768;
+        mono[i] = (int16_t)y;
     }
     audio_i2s_write_mono(mono, frames);
 }

@@ -15,15 +15,13 @@ CONFIG_ESP_WIFI_ENABLED=n
 # Bluetooth Configuration - Disabled for APU-only build
 CONFIG_BT_ENABLED=n
 
-# SPI-RAM
-CONFIG_SPIRAM=y
-CONFIG_SPIRAM_SUPPORT=y
-CONFIG_SPIRAM_SPEED_80M=y
-CONFIG_SPIRAM_USE_CAPS_ALLOC=y
-# CONFIG_SPIRAM_OCCUPY_HSPI_HOST is not set
-CONFIG_SPIRAM_OCCUPY_VSPI_HOST=y
-# CONFIG_SPIRAM_USE_MALLOC is not set
-CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=y
+# SPI-RAM disabled. We do not allocate PSRAM anywhere in the Narya port
+# (ROMs come from flash via esp_partition_mmap, the menu framebuffer and
+# Anemoia mapper state live in internal DRAM). Keeping PSRAM enabled
+# halves the available data cache for flash XIP, which slows the 6502
+# interpreter to ~18 fps - Anemoia's published benchmarks assume no
+# PSRAM. Switch off here to give the cache fully to flash.
+CONFIG_SPIRAM=n
 
 # Flash
 CONFIG_ESPTOOLPY_FLASHMODE="qio"
