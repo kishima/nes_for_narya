@@ -62,6 +62,9 @@ extern "C" volatile uint8_t  g_mask_or;
 extern "C" volatile uint8_t  g_ctrl_or;
 extern "C" volatile uint8_t  g_controller_or;
 extern "C" volatile uint8_t  g_strobe_latched_or;
+extern "C" volatile uint16_t g_pc_last;
+extern "C" volatile uint16_t g_pc_min;
+extern "C" volatile uint16_t g_pc_max;
 
 // hid_rx_task increments this on every loop iteration so the diagnostic
 // log can confirm the task is actually scheduled.
@@ -110,6 +113,9 @@ static void emu_task(void *arg)
             uint8_t  strobe_or   = g_strobe_latched_or;   g_strobe_latched_or   = 0;
             uint8_t  mask_or     = g_mask_or;             g_mask_or             = 0;
             uint8_t  ctrl_or     = g_ctrl_or;             g_ctrl_or             = 0;
+            uint16_t pc_last     = g_pc_last;
+            uint16_t pc_min      = g_pc_min;              g_pc_min              = 0xFFFF;
+            uint16_t pc_max      = g_pc_max;              g_pc_max              = 0x0000;
             ESP_LOGI(TAG, "[emu] frames=%d avg_update=%lldus",
                      diag_frames,
                      diag_frames ? diag_clock_us_sum / diag_frames : 0);
@@ -120,6 +126,8 @@ static void emu_task(void *arg)
                      (unsigned)mask_or, (unsigned)ctrl_or,
                      (unsigned)strobes, (unsigned)ctrl_reads,
                      (unsigned)pad_or, (unsigned)strobe_or);
+            ESP_LOGI(TAG, "[cpu-diag] pc=0x%04X range=0x%04X..0x%04X",
+                     (unsigned)pc_last, (unsigned)pc_min, (unsigned)pc_max);
             uint32_t hid_bytes = 0, hid_msgs = 0, hid_drops = 0;
             hid_uart_rx_stats(&hid_bytes, &hid_msgs, &hid_drops);
             ESP_LOGI(TAG, "[hid-diag] uart_bytes=%u msgs=%u drops=%u rx_iter=%u",

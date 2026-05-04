@@ -137,7 +137,20 @@ IRAM_ATTR uint8_t Ppu2C02::cpuRead(uint16_t addr)
     {
     case 0x0002: // PPUSTATUS
         data = status.reg & 0xE0;
-        status.VBlank = 0;
+        // Narya port: NES spec clears the VBlank flag on $2002 read as a
+        // side effect, but our coarse CPU/PPU sync (bus.clock() runs the
+        // CPU 2501 cycles at a time during VBlank, with no per-cycle
+        // PPU interleave) makes some games' boot-time double-VBlank
+        // wait loops effectively never escape - Mario3 sat in its
+        // $FF3E..$FF41 LDA $2002 / BPL loop for ~6 minutes before a
+        // lucky timing finally let it through. Removing the read-clear
+        // side effect lets the wait loop's two iterations latch the
+        // same in-window VBlank=1 reading, so the loop exits in one
+        // frame instead of needing two precisely-timed pulses. setVBlank
+        // / clearVBlank still drive the flag spec-correctly across the
+        // 0->1->0 transitions of each frame, and NMI is triggered by
+        // setVBlank, not by the read - so games using NMI for VBlank
+        // ack are unaffected.
         w = 0;
         break;
     case 0x0004: // OAMDATA

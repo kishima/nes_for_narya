@@ -19,6 +19,14 @@ extern "C" volatile uint8_t  g_mask_or            = 0;
 extern "C" volatile uint8_t  g_ctrl_or            = 0;
 extern "C" volatile uint8_t  g_controller_or      = 0;
 extern "C" volatile uint8_t  g_strobe_latched_or  = 0;
+// 6502 PC sampled at the start of every bus.clock(). g_pc_last is the
+// most recent value, g_pc_min / g_pc_max record the [min, max] range
+// across the 1 Hz log window. A tight init-stuck loop shows a narrow
+// range (a few bytes of PRG); a healthy main loop ranges across hundreds
+// of bytes. Reset each second by main when the diag line is emitted.
+extern "C" volatile uint16_t g_pc_last             = 0;
+extern "C" volatile uint16_t g_pc_min              = 0xFFFF;
+extern "C" volatile uint16_t g_pc_max              = 0x0000;
 
 Bus::Bus()
 {
@@ -97,6 +105,16 @@ IRAM_ATTR void Bus::clock()
     // to sample them here.
     g_controller_or = (uint8_t)(g_controller_or | controller);
     if (frame_latch) g_skip_clocks++; else g_render_clocks++;
+
+    // Snapshot the 6502 PC at the start of each frame. Only one sample
+    // per frame so this is cheap; widening to a per-instruction trace
+    // would need cpu6502 hooks. The min/max bracket aggregates across
+    // every bus.clock() in the 1 Hz window and is what tells init-stuck
+    // games (small range) apart from running ones (large range).
+    uint16_t pc = cpu.PC;
+    g_pc_last = pc;
+    if (pc < g_pc_min) g_pc_min = pc;
+    if (pc > g_pc_max) g_pc_max = pc;
 
     // 1 frame == 341 dots * 261 scanlines
     // Visible scanlines 0-239
