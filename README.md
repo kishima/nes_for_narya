@@ -1,6 +1,6 @@
 # nes_for_narya
 
-A two-MCU NES emulator for the **Narya** board: an ESP32-WROVER drives
+A two-MCU NES emulator for the [Narya board](https://github.com/family-mruby/narya-board) : an ESP32-WROVER drives
 NTSC composite video and I2S audio while running the
 [Anemoia-ESP32](https://github.com/Shim06/Anemoia-ESP32) NES core; an
 ESP32-S3 hosts a USB HID gamepad and forwards button events over UART.
