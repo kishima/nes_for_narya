@@ -135,8 +135,11 @@ static void emu_task(void *arg)
         int n = emu->audio_buffer(audio_block, NARYA_AUDIO_BUF_SAMPLES);
         if (n > 0) audio_i2s_write_mono(audio_block, n);
 
+#ifdef NARYA_DIAG
         // 1 Hz: average emu->update() time so we can see if the core is
-        // running at real-time (~16 ms) or far slower.
+        // running at real-time (~16 ms) or far slower. Whole block (drains
+        // and emits) gated on NARYA_DIAG; the underlying counters in
+        // bus.cpp / ppu / mapper continue to increment, just never drained.
         if (t1 - diag_window_start >= 1000000) {
             uint32_t pub_calls   = g_publish_calls;       g_publish_calls       = 0;
             uint32_t render_st   = g_render_frame_starts; g_render_frame_starts = 0;
@@ -163,7 +166,6 @@ static void emu_task(void *arg)
                      (unsigned)pad_or, (unsigned)strobe_or);
             ESP_LOGI(TAG, "[cpu-diag] pc=0x%04X range=0x%04X..0x%04X",
                      (unsigned)pc_last, (unsigned)pc_min, (unsigned)pc_max);
-#ifdef NARYA_DIAG
             // BEGIN: mapper001 diag (revertable)
             {
                 uint32_t m1_w8000 = g_mapper001_w8000_done;   g_mapper001_w8000_done  = 0;
@@ -199,7 +201,6 @@ static void emu_task(void *arg)
                          (unsigned)r_v0, (unsigned)r_v1);
             }
             // END: ppu vblank diag (revertable)
-#endif
             uint32_t hid_bytes = 0, hid_msgs = 0, hid_drops = 0;
             hid_uart_rx_stats(&hid_bytes, &hid_msgs, &hid_drops);
             ESP_LOGI(TAG, "[hid-diag] uart_bytes=%u msgs=%u drops=%u rx_iter=%u",
@@ -209,6 +210,7 @@ static void emu_task(void *arg)
             diag_clock_us_sum = 0;
             diag_window_start = t1;
         }
+#endif
 
         // Frame pace. Anemoia produces audio out-of-band on apu_task, so
         // audio_buffer() returns 0 here and this loop has no I2S back-
@@ -242,7 +244,11 @@ static void perf_task(void *arg)
         int64_t dus = now - last_us;
         last_frames = frames;
         last_us     = now;
+#ifdef NARYA_DIAG
         ESP_LOGI(TAG, "[perf] frame=%d (+%d in %lldms)", frames, dframes, dus / 1000);
+#else
+        (void)dframes; (void)dus;
+#endif
     }
 }
 
@@ -260,15 +266,21 @@ static void hid_rx_task(void *arg)
         if (hid_uart_rx_recv(&msg, portMAX_DELAY) != pdTRUE) continue;
         switch (msg.type) {
         case NARYA_EVT_BTN_DOWN:
+#ifdef NARYA_DIAG
             ESP_LOGI(TAG, "hid_evt: btn=%u DOWN seq=%u", msg.payload[0], msg.seq);
+#endif
             if (emu) nofrendo_event_btn(emu, msg.payload[0], 1);
             break;
         case NARYA_EVT_BTN_UP:
+#ifdef NARYA_DIAG
             ESP_LOGI(TAG, "hid_evt: btn=%u UP seq=%u", msg.payload[0], msg.seq);
+#endif
             if (emu) nofrendo_event_btn(emu, msg.payload[0], 0);
             break;
         case NARYA_EVT_HEARTBEAT:
+#ifdef NARYA_DIAG
             ESP_LOGI(TAG, "hid_link_alive seq=%u", msg.seq);
+#endif
             break;
         default:
             ESP_LOGD(TAG, "hid_evt: type=0x%02X len=%u seq=%u", msg.type, msg.len, msg.seq);
