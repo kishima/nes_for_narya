@@ -8,7 +8,7 @@ project(narya_core)
 # the CPU sees a flash-XIP virtual address (no PSRAM round-trip), which
 # keeps the NES core's PPU timing inside cache-friendly bounds.
 set(NARYA_ROMS_BIN ${CMAKE_BINARY_DIR}/roms.bin)
-file(GLOB NARYA_ROM_FILES ${CMAKE_CURRENT_LIST_DIR}/data/roms/*.nes)
+file(GLOB NARYA_ROM_FILES CONFIGURE_DEPENDS ${CMAKE_CURRENT_LIST_DIR}/data/roms/*.nes)
 
 add_custom_command(
     OUTPUT  ${NARYA_ROMS_BIN}
