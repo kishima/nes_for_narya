@@ -1,11 +1,13 @@
 #include "mapper001.h"
 #include "../cartridge.h"
+#include "narya_diag.h"
 
+#ifdef NARYA_DIAG
 // =============================================================
 // BEGIN: mapper001 diag (revertable)
 // Lightweight counters and last-write snapshot, drained once per
-// second from main.cpp's emu-diag log line. Search for "mapper001
-// diag" to remove this block when no longer needed.
+// second from main.cpp's emu-diag log line. Gated on NARYA_DIAG so
+// production builds stay symbol-free.
 extern "C" volatile uint32_t g_mapper001_w8000_done   = 0; // control reg 5-write completions
 extern "C" volatile uint32_t g_mapper001_wA000_done   = 0; // CHR bank 0 reg completions
 extern "C" volatile uint32_t g_mapper001_wC000_done   = 0; // CHR bank 1 reg completions
@@ -20,6 +22,7 @@ extern "C" volatile uint8_t  g_mapper001_last_chr_bank0 = 0;
 extern "C" volatile uint8_t  g_mapper001_last_chr_bank1 = 0;
 // END: mapper001 diag (revertable)
 // =============================================================
+#endif
 
 struct Mapper001_state
 {
@@ -149,9 +152,11 @@ IRAM_ATTR bool mapper001_cpuWrite(Mapper* mapper, uint16_t addr, uint8_t data)
     {
         state->load = (state->load >> 1) | ((data & 0x01) << 4);
         state->load_writes++;
+#ifdef NARYA_DIAG
         // BEGIN: mapper001 diag (revertable)
         g_mapper001_load_writes++;
         // END: mapper001 diag (revertable)
+#endif
 
         if (state->load_writes == 5)
         {
@@ -171,21 +176,25 @@ IRAM_ATTR bool mapper001_cpuWrite(Mapper* mapper, uint16_t addr, uint8_t data)
                 // fixed vs swappable; re-apply the window mapping
                 // before the CPU can fetch from the new layout.
                 mapper001_apply_banks(state);
+#ifdef NARYA_DIAG
                 // BEGIN: mapper001 diag (revertable)
                 g_mapper001_w8000_done++;
                 g_mapper001_last_control  = state->control;
                 g_mapper001_last_prg_mode = state->PRG_ROM_bank_mode;
                 g_mapper001_last_chr_mode = state->CHR_ROM_bank_mode;
                 // END: mapper001 diag (revertable)
+#endif
                 break;
 
             // CHR bank 0 Register
             case 1:
                 state->CHR_bank_0 = state->load & 0x1F;
+#ifdef NARYA_DIAG
                 // BEGIN: mapper001 diag (revertable)
                 g_mapper001_wA000_done++;
                 g_mapper001_last_chr_bank0 = state->CHR_bank_0;
                 // END: mapper001 diag (revertable)
+#endif
 
                 if (state->CHR_ROM_bank_mode == 0)
                 {
@@ -211,10 +220,12 @@ IRAM_ATTR bool mapper001_cpuWrite(Mapper* mapper, uint16_t addr, uint8_t data)
             // CHR bank 1 Register
             case 2:
                 state->CHR_bank_1 = state->load & 0x1F;
+#ifdef NARYA_DIAG
                 // BEGIN: mapper001 diag (revertable)
                 g_mapper001_wC000_done++;
                 g_mapper001_last_chr_bank1 = state->CHR_bank_1;
                 // END: mapper001 diag (revertable)
+#endif
 
                 if (state->CHR_ROM_bank_mode == 1)
                 {
@@ -230,10 +241,12 @@ IRAM_ATTR bool mapper001_cpuWrite(Mapper* mapper, uint16_t addr, uint8_t data)
             // PRG bank Register
             case 3:
                 state->PRG_bank = state->load & 0x1F;
+#ifdef NARYA_DIAG
                 // BEGIN: mapper001 diag (revertable)
                 g_mapper001_wE000_done++;
                 g_mapper001_last_prg_bank = state->PRG_bank;
                 // END: mapper001 diag (revertable)
+#endif
 
                 switch (state->PRG_ROM_bank_mode)
                 {
@@ -286,12 +299,14 @@ IRAM_ATTR bool mapper001_cpuWrite(Mapper* mapper, uint16_t addr, uint8_t data)
         state->PRG_ROM_bank_mode = (state->control >> 2) & 0x03;
         state->CHR_ROM_bank_mode = (state->control >> 4) & 0x01;
         mapper001_apply_banks(state);
+#ifdef NARYA_DIAG
         // BEGIN: mapper001 diag (revertable)
         g_mapper001_bit7_resets++;
         g_mapper001_last_control  = state->control;
         g_mapper001_last_prg_mode = state->PRG_ROM_bank_mode;
         g_mapper001_last_chr_mode = state->CHR_ROM_bank_mode;
         // END: mapper001 diag (revertable)
+#endif
     }
     return true;
 }

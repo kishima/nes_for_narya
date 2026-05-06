@@ -1,12 +1,13 @@
 #include "ppu2C02.h"
 #include "bus.h"
+#include "narya_diag.h"
 
+#ifdef NARYA_DIAG
 // =============================================================
 // BEGIN: ppu vblank diag (revertable)
 // Counters drained from main.cpp's 1 Hz log so we can tell, during
 // hangs, whether the CPU is reading PPUSTATUS at all and which value
-// (vblank=0 vs vblank=1) it gets back. Search "ppu vblank diag" to
-// remove this block when the diagnosis is done.
+// (vblank=0 vs vblank=1) it gets back. Gated on NARYA_DIAG.
 extern "C" volatile uint32_t g_ppu_setvblank_calls;
 extern "C" volatile uint32_t g_ppu_clearvblank_calls;
 extern "C" volatile uint32_t g_ppu_nmi_fires;
@@ -14,6 +15,7 @@ extern "C" volatile uint32_t g_ppu_2002_reads_vbl0;
 extern "C" volatile uint32_t g_ppu_2002_reads_vbl1;
 // END: ppu vblank diag (revertable)
 // =============================================================
+#endif
 
 #define READ_PALETTE(x) palette_table[((x) & 0x1F) ^ (((x) & 0x13) == 0x10 ? 0x10 : 0x00)]
 #ifdef ILI9341_DRIVER
@@ -151,9 +153,11 @@ IRAM_ATTR uint8_t Ppu2C02::cpuRead(uint16_t addr)
     {
     case 0x0002: // PPUSTATUS
         data = status.reg & 0xE0;
+#ifdef NARYA_DIAG
         // BEGIN: ppu vblank diag (revertable)
         if (status.VBlank) g_ppu_2002_reads_vbl1++; else g_ppu_2002_reads_vbl0++;
         // END: ppu vblank diag (revertable)
+#endif
         // Narya port: NES spec clears the VBlank flag on $2002 read as a
         // side effect, but our coarse CPU/PPU sync (bus.clock() runs the
         // CPU 2501 cycles at a time during VBlank, with no per-cycle
@@ -185,6 +189,7 @@ IRAM_ATTR uint8_t Ppu2C02::cpuRead(uint16_t addr)
     return data;
 }
 
+#ifdef NARYA_DIAG
 // BEGIN: ppu vblank diag (revertable)
 extern "C" volatile uint32_t g_ppu_setvblank_calls   = 0;
 extern "C" volatile uint32_t g_ppu_clearvblank_calls = 0;
@@ -192,17 +197,22 @@ extern "C" volatile uint32_t g_ppu_nmi_fires         = 0;
 extern "C" volatile uint32_t g_ppu_2002_reads_vbl0   = 0;
 extern "C" volatile uint32_t g_ppu_2002_reads_vbl1   = 0;
 // END: ppu vblank diag (revertable)
+#endif
 
 IRAM_ATTR void Ppu2C02::setVBlank()
 {
     status.VBlank = 1;
+#ifdef NARYA_DIAG
     // BEGIN: ppu vblank diag (revertable)
     g_ppu_setvblank_calls++;
     // END: ppu vblank diag (revertable)
+#endif
     if (control.Vblank_NMI) {
+#ifdef NARYA_DIAG
         // BEGIN: ppu vblank diag (revertable)
         g_ppu_nmi_fires++;
         // END: ppu vblank diag (revertable)
+#endif
         bus->NMI();
     }
 }
@@ -212,9 +222,11 @@ IRAM_ATTR void Ppu2C02::clearVBlank()
     status.VBlank = 0;
     status.sprite_zero_hit = 0;
     status.sprite_overflow = 0;
+#ifdef NARYA_DIAG
     // BEGIN: ppu vblank diag (revertable)
     g_ppu_clearvblank_calls++;
     // END: ppu vblank diag (revertable)
+#endif
 }
 
 IRAM_ATTR void Ppu2C02::renderScanline(uint16_t current_scanline)

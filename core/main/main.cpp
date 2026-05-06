@@ -37,6 +37,7 @@
 #include "esp_timer.h"
 
 #include "narya_pin_assign.h"
+#include "narya_diag.h"
 #include "hid_uart_proto.h"
 #include "video_out.h"
 #include "audio_i2s.h"
@@ -66,9 +67,10 @@ extern "C" volatile uint16_t g_pc_last;
 extern "C" volatile uint16_t g_pc_min;
 extern "C" volatile uint16_t g_pc_max;
 
+#ifdef NARYA_DIAG
 // =============================================================
 // BEGIN: mapper001 diag (revertable)
-// Drained from emu_task's 1 Hz log so we can see whether DQ3-style
+// Drained from emu_task's 1 Hz log so we can see whether MMC1
 // hangs are still touching MMC1 at all (counters keep moving) or
 // have stopped writing entirely (counters frozen). last_* fields
 // hold the most recently completed register write so we can read
@@ -97,6 +99,7 @@ extern "C" volatile uint32_t g_ppu_2002_reads_vbl0;
 extern "C" volatile uint32_t g_ppu_2002_reads_vbl1;
 // END: ppu vblank diag (revertable)
 // =============================================================
+#endif
 
 // hid_rx_task increments this on every loop iteration so the diagnostic
 // log can confirm the task is actually scheduled.
@@ -160,6 +163,7 @@ static void emu_task(void *arg)
                      (unsigned)pad_or, (unsigned)strobe_or);
             ESP_LOGI(TAG, "[cpu-diag] pc=0x%04X range=0x%04X..0x%04X",
                      (unsigned)pc_last, (unsigned)pc_min, (unsigned)pc_max);
+#ifdef NARYA_DIAG
             // BEGIN: mapper001 diag (revertable)
             {
                 uint32_t m1_w8000 = g_mapper001_w8000_done;   g_mapper001_w8000_done  = 0;
@@ -195,6 +199,7 @@ static void emu_task(void *arg)
                          (unsigned)r_v0, (unsigned)r_v1);
             }
             // END: ppu vblank diag (revertable)
+#endif
             uint32_t hid_bytes = 0, hid_msgs = 0, hid_drops = 0;
             hid_uart_rx_stats(&hid_bytes, &hid_msgs, &hid_drops);
             ESP_LOGI(TAG, "[hid-diag] uart_bytes=%u msgs=%u drops=%u rx_iter=%u",
